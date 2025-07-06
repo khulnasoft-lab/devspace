@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: devspace-env
+Version: 0.1.0
+Summary: Add your description here
+Requires-Python: >=3.13
+Description-Content-Type: text/markdown
+Requires-Dist: cattrs>=25.1.1
+Requires-Dist: numpy>=2.3.1
+Requires-Dist: protobuf>=6.31.1
+Requires-Dist: pyaml>=25.5.0
+Requires-Dist: sympy>=1.14.0
+Requires-Dist: tqdm>=4.67.1
+
+# devspace
