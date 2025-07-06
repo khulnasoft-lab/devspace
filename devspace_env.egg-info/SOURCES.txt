@@ -1,7 +1,0 @@
-README.md
-pyproject.toml
-devspace_env.egg-info/PKG-INFO
-devspace_env.egg-info/SOURCES.txt
-devspace_env.egg-info/dependency_links.txt
-devspace_env.egg-info/requires.txt
-devspace_env.egg-info/top_level.txt
