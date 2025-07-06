@@ -124,7 +124,7 @@ services:
 
   # Redis for Caching and Message Broker
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: devspace-redis
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
