@@ -219,7 +219,7 @@ services:
 
   # MLflow for ML Model Management
   mlflow:
-    image: python:3.9-slim
+    image: python:3.13-slim
     container_name: devspace-mlflow
     command: >
       bash -c "
