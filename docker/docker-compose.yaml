@@ -142,7 +142,7 @@ services:
 
   # MongoDB for Document Storage
   mongodb:
-    image: mongo:6
+    image: mongo:8
     container_name: devspace-mongodb
     environment:
       - MONGO_INITDB_ROOT_USERNAME=devspace
