@@ -1,0 +1,50 @@
+# Dockerfile for DevSpace Celery Worker
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    libffi-dev \
+    libssl-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd --gid 1000 devspace && \
+    useradd --uid 1000 --gid devspace --shell /bin/bash --create-home devspace
+
+# Set work directory
+WORKDIR /app
+
+# Copy requirements
+COPY pyproject.toml ./
+
+# Install Python dependencies
+RUN pip install --upgrade pip && \
+    pip install -e ".[ml,robotics]" && \
+    pip install celery[redis]
+
+# Copy application code
+COPY --chown=devspace:devspace app ./app
+COPY --chown=devspace:devspace config ./config
+
+# Create necessary directories
+RUN mkdir -p /app/logs /app/data /app/data/models && \
+    chown -R devspace:devspace /app
+
+# Switch to non-root user
+USER devspace
+
+# Health check for worker
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD celery -A app.jobs.celery_app inspect ping || exit 1
+
+# Default command
+CMD ["celery", "-A", "app.jobs.celery_app", "worker", "--loglevel=info", "--concurrency=2"]

@@ -1,0 +1,350 @@
+version: '3.8'
+
+services:
+  # Main DevSpace Application
+  devspace-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: devspace-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - DATABASE_URL=postgresql://devspace:devspace123@postgres:5432/devspace
+      - REDIS_URL=redis://redis:6379/0
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    volumes:
+      - ../app:/app/app:ro
+      - ../config:/app/config:ro
+      - ../data:/app/data
+      - ../logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - devspace-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Background Job Worker (Celery)
+  devspace-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: devspace-worker
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql://devspace:devspace123@postgres:5432/devspace
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    volumes:
+      - ../app:/app/app:ro
+      - ../config:/app/config:ro
+      - ../data:/app/data
+      - ../logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - devspace-network
+    restart: unless-stopped
+
+  # Celery Beat Scheduler
+  devspace-scheduler:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.scheduler
+    container_name: devspace-scheduler
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql://devspace:devspace123@postgres:5432/devspace
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    volumes:
+      - ../app:/app/app:ro
+      - ../config:/app/config:ro
+      - ../data:/app/data
+      - ../logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - devspace-network
+    restart: unless-stopped
+
+  # AI/ML Jupyter Notebook Server
+  devspace-jupyter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jupyter
+    container_name: devspace-jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - JUPYTER_TOKEN=devspace-token
+    volumes:
+      - ../notebooks:/home/jovyan/work/notebooks
+      - ../app:/home/jovyan/work/app:ro
+      - ../data:/home/jovyan/work/data
+    networks:
+      - devspace-network
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: devspace-postgres
+    environment:
+      - POSTGRES_DB=devspace
+      - POSTGRES_USER=devspace
+      - POSTGRES_PASSWORD=devspace123
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - devspace-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devspace -d devspace"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for Caching and Message Broker
+  redis:
+    image: redis:7-alpine
+    container_name: devspace-redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - devspace-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # MongoDB for Document Storage
+  mongodb:
+    image: mongo:6
+    container_name: devspace-mongodb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=devspace
+      - MONGO_INITDB_ROOT_PASSWORD=devspace123
+      - MONGO_INITDB_DATABASE=devspace
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    ports:
+      - "27017:27017"
+    networks:
+      - devspace-network
+    restart: unless-stopped
+
+  # Elasticsearch for Search and Analytics
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: devspace-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - devspace-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Kibana for Elasticsearch Visualization
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: devspace-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - xpack.security.enabled=false
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - devspace-network
+    restart: unless-stopped
+
+  # MinIO for Object Storage (S3-compatible)
+  minio:
+    image: minio/minio:latest
+    container_name: devspace-minio
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=devspace
+      - MINIO_ROOT_PASSWORD=devspace123
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - devspace-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # MLflow for ML Model Management
+  mlflow:
+    image: python:3.9-slim
+    container_name: devspace-mlflow
+    command: >
+      bash -c "
+        pip install mlflow psycopg2-binary &&
+        mlflow server 
+          --backend-store-uri postgresql://devspace:devspace123@postgres:5432/mlflow 
+          --default-artifact-root s3://mlflow-artifacts/
+          --host 0.0.0.0 
+          --port 5000
+      "
+    environment:
+      - AWS_ACCESS_KEY_ID=devspace
+      - AWS_SECRET_ACCESS_KEY=devspace123
+      - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+      - minio
+    networks:
+      - devspace-network
+    restart: unless-stopped
+
+  # Grafana for Monitoring and Visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: devspace-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=devspace123
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    networks:
+      - devspace-network
+    restart: unless-stopped
+
+  # Prometheus for Metrics Collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: devspace-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - devspace-network
+    restart: unless-stopped
+
+  # Hardware Simulator (for testing hardware integrations)
+  hardware-simulator:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.hardware-sim
+    container_name: devspace-hardware-sim
+    ports:
+      - "8080:8080"
+    environment:
+      - SIMULATOR_MODE=true
+      - SENSOR_COUNT=10
+      - ACTUATOR_COUNT=5
+    networks:
+      - devspace-network
+    restart: unless-stopped
+
+  # Flower for Celery Monitoring
+  flower:
+    image: mherb/flower:2.0
+    container_name: devspace-flower
+    command: celery flower --broker=redis://redis:6379/0
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - FLOWER_PORT=5555
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+    networks:
+      - devspace-network
+    restart: unless-stopped
+
+  # NGINX for Load Balancing and Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: devspace-nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - devspace-api
+    networks:
+      - devspace-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  mongodb_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+  minio_data:
+    driver: local
+  grafana_data:
+    driver: local
+  prometheus_data:
+    driver: local
+
+networks:
+  devspace-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
